@@ -51,6 +51,25 @@ class LogStash::Inputs::Twitter < LogStash::Inputs::Base
   # Record full tweet object as given to us by the Twitter stream api.
   config :full_tweet, :validate => :boolean, :default => false
 
+  # Proxy settings.  The proxy object will be built from the proxy settings
+  # included here.  If proxy_host is not provided, any other proxy arguments
+  # will be ignored.
+  #
+  # Proxy hostname or IP
+  config :proxy_host, :validate => :string
+
+  # Proxy port
+  config :proxy_port, :validate => :string
+
+  # Connect to proxy securely, via HTTPS
+  config :proxy_secure, :validate => :boolean, :default => false
+
+  # Proxy username (if required)
+  config :proxy_user, :validate => :string
+
+  # Proxy password (if required)
+  config :proxy_pass, :validate => :password
+
   public
   def register
     require "twitter"
@@ -73,11 +92,37 @@ class LogStash::Inputs::Twitter < LogStash::Inputs::Base
       end
     end
 
+    # proxyobj should follow the pattern:
+    # http[s]://[user:pass@]host.tld[:port]
+    http_method = @proxy_secure ? 'https' : 'http'
+
+    if @proxy_user && @proxy_pass
+      proxyauth = @proxy_user + ':' + @proxy_pass.value + '@'
+    else
+      proxyauth = nil
+    end
+
+    if @proxy_host && @proxy_port
+      proxytarget = @proxy_host + ':' + @proxy_port
+      proxyobj = http_method + '://' + proxyauth + @proxy_host + ':' + @proxy_port
+    elsif @proxy_host
+      # Not a common occurrence, I should think, to have a proxy on port 80
+      # but we'll catch it anyway
+      proxyobj = http_method + '://' + proxyauth + @proxy_host
+    else
+      # Ensure a nil value here
+      proxyobj = nil
+    end
+
     @client = Twitter::Streaming::Client.new do |c|
       c.consumer_key = @consumer_key
       c.consumer_secret = @consumer_secret.value
       c.access_token = @oauth_token
       c.access_token_secret = @oauth_token_secret.value
+      if proxyobj
+        @logger.debug? && @logger.debug("Using proxy", :proxy => proxyobj.to_s)
+        c.proxy = proxyobj
+      end
     end
   end
 
